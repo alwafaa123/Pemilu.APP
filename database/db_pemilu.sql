@@ -1,19 +1,8 @@
--- =====================================================================
--- Sistem Pemungutan Suara Pemilu dengan Validasi Transaksi Suara
--- Berbasis Stored Procedure MySQL
--- Basis data : db_pemilu (MySQL 8.0, InnoDB)
--- Penulis    : Fattahul Halim
--- =====================================================================
 
 CREATE DATABASE IF NOT EXISTS db_pemilu
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE db_pemilu;
 
--- ---------------------------------------------------------------------
--- BAGIAN 1. TABEL
--- ---------------------------------------------------------------------
-
--- 1. Admin
 CREATE TABLE IF NOT EXISTS admin (
   id_admin      INT AUTO_INCREMENT PRIMARY KEY,
   username      VARCHAR(50)  NOT NULL UNIQUE,
@@ -21,7 +10,6 @@ CREATE TABLE IF NOT EXISTS admin (
   peran         VARCHAR(20)  NOT NULL DEFAULT 'ADMIN'
 ) ENGINE=InnoDB;
 
--- 2. Pemilih
 CREATE TABLE IF NOT EXISTS pemilih (
   id_pemilih    INT AUTO_INCREMENT PRIMARY KEY,
   nik           CHAR(16)     NOT NULL UNIQUE,
@@ -31,7 +19,6 @@ CREATE TABLE IF NOT EXISTS pemilih (
   status_aktif  TINYINT(1)   NOT NULL DEFAULT 1
 ) ENGINE=InnoDB;
 
--- 3. Pemilihan
 CREATE TABLE IF NOT EXISTS pemilihan (
   id_pemilihan   INT AUTO_INCREMENT PRIMARY KEY,
   nama_pemilihan VARCHAR(150) NOT NULL,
@@ -41,7 +28,6 @@ CREATE TABLE IF NOT EXISTS pemilihan (
   CONSTRAINT chk_waktu CHECK (waktu_selesai > waktu_mulai)
 ) ENGINE=InnoDB;
 
--- 4. Kandidat
 CREATE TABLE IF NOT EXISTS kandidat (
   id_kandidat   INT AUTO_INCREMENT PRIMARY KEY,
   id_pemilihan  INT          NOT NULL,
@@ -70,7 +56,6 @@ CREATE TABLE IF NOT EXISTS partisipasi (
     ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
--- 6. Suara (pilihan, TANPA identitas pemilih)
 CREATE TABLE IF NOT EXISTS suara (
   id_suara        INT AUTO_INCREMENT PRIMARY KEY,
   id_pemilihan    INT      NOT NULL,
@@ -86,7 +71,6 @@ CREATE TABLE IF NOT EXISTS suara (
     ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
--- 7. Log audit
 CREATE TABLE IF NOT EXISTS log_audit (
   id_log      INT AUTO_INCREMENT PRIMARY KEY,
   id_pemilih  INT NULL,
@@ -99,12 +83,8 @@ CREATE TABLE IF NOT EXISTS log_audit (
     ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
--- ---------------------------------------------------------------------
--- BAGIAN 2. STORED PROCEDURE (sesuai urutan Tabel 3.2 proposal)
--- ---------------------------------------------------------------------
 DELIMITER $$
 
--- 1. sp_registrasi_pemilih ------------------------------------------
 DROP PROCEDURE IF EXISTS sp_registrasi_pemilih$$
 CREATE PROCEDURE sp_registrasi_pemilih (
   IN  p_nik      CHAR(16),
@@ -139,8 +119,6 @@ BEGIN
   END IF;
 END$$
 
--- 2. sp_login_pemilih -----------------------------------------------
--- Catatan: ditambah OUT p_id_pemilih agar aplikasi mengetahui id pemilih.
 DROP PROCEDURE IF EXISTS sp_login_pemilih$$
 CREATE PROCEDURE sp_login_pemilih (
   IN  p_nik        CHAR(16),
@@ -178,7 +156,6 @@ BEGIN
   END IF;
 END$$
 
--- 3. sp_buat_pemilihan ----------------------------------------------
 DROP PROCEDURE IF EXISTS sp_buat_pemilihan$$
 CREATE PROCEDURE sp_buat_pemilihan (
   IN  p_nama          VARCHAR(150),
@@ -208,8 +185,6 @@ BEGIN
   END IF;
 END$$
 
--- 4. sp_tambah_kandidat ---------------------------------------------
--- Kandidat hanya dapat ditambahkan selama pemilihan masih berstatus DRAFT.
 DROP PROCEDURE IF EXISTS sp_tambah_kandidat$$
 CREATE PROCEDURE sp_tambah_kandidat (
   IN  p_id_pemilihan INT,
@@ -253,9 +228,6 @@ BEGIN
   END IF;
 END$$
 
--- 5. sp_catat_suara (PROSEDUR INTI: validasi berlapis dalam satu transaksi)
---    Setiap percobaan, baik berhasil maupun gagal, dicatat di log_audit.
---    Pilihan kandidat TIDAK pernah dicatat di log_audit.
 DROP PROCEDURE IF EXISTS sp_catat_suara$$
 CREATE PROCEDURE sp_catat_suara (
   IN  p_nik          CHAR(16),
@@ -271,7 +243,6 @@ BEGIN
   DECLARE v_ok         TINYINT(1) DEFAULT 0;
   DECLARE v_ket        VARCHAR(200) DEFAULT '';
 
-  -- Penanganan kesalahan tak terduga: batalkan transaksi dan catat percobaan gagal
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -282,25 +253,21 @@ BEGIN
 
   START TRANSACTION;
 
-  -- 1. Kunci baris pemilih agar permintaan ganda dari pemilih yang sama berurutan
   SELECT id_pemilih INTO v_id_pemilih
     FROM pemilih
    WHERE nik = p_nik AND status_aktif = 1
    FOR UPDATE;
 
-  -- 2. Pemilihan harus berstatus BERLANGSUNG dan berada dalam rentang waktu
   SELECT status INTO v_status
     FROM pemilihan
    WHERE id_pemilihan = p_id_pemilihan
      AND NOW() BETWEEN waktu_mulai AND waktu_selesai;
 
-  -- 3. Kandidat harus termasuk dalam pemilihan tersebut
   SELECT COUNT(*) INTO v_kandidat
     FROM kandidat
    WHERE id_kandidat = p_id_kandidat
      AND id_pemilihan = p_id_pemilihan;
 
-  -- 4. Pemilih belum pernah memilih pada pemilihan ini
   SELECT COUNT(*) INTO v_sudah
     FROM partisipasi
    WHERE id_pemilih = v_id_pemilih
@@ -319,7 +286,6 @@ BEGIN
   END IF;
 
   IF v_ok = 1 THEN
-    -- Catat partisipasi (tanpa pilihan) dan suara (tanpa identitas pemilih)
     INSERT INTO partisipasi (id_pemilih, id_pemilihan, waktu_memilih)
     VALUES (v_id_pemilih, p_id_pemilihan, NOW());
 
@@ -334,14 +300,12 @@ BEGIN
     SET p_status = 'BERHASIL: suara Anda telah tercatat';
   ELSE
     ROLLBACK;
-    -- Percobaan gagal tetap dicatat (setelah ROLLBACK, sehingga tidak ikut dibatalkan)
     INSERT INTO log_audit (id_pemilih, aksi, hasil, keterangan)
     VALUES (v_id_pemilih, 'CATAT_SUARA', 'GAGAL', v_ket);
     SET p_status = CONCAT('GAGAL: ', v_ket);
   END IF;
 END$$
 
--- 6. sp_rekap_suara -------------------------------------------------
 DROP PROCEDURE IF EXISTS sp_rekap_suara$$
 CREATE PROCEDURE sp_rekap_suara (
   IN p_id_pemilihan INT
@@ -365,7 +329,6 @@ BEGIN
    ORDER BY k.no_urut;
 END$$
 
--- 7. sp_statistik_partisipasi ---------------------------------------
 DROP PROCEDURE IF EXISTS sp_statistik_partisipasi$$
 CREATE PROCEDURE sp_statistik_partisipasi (
   IN  p_id_pemilihan INT,
@@ -387,12 +350,6 @@ BEGIN
 END$$
 
 DELIMITER ;
-
--- ---------------------------------------------------------------------
--- BAGIAN 3. PROSEDUR TAMBAHAN (di luar Tabel 3.2, diperlukan agar
--- status pemilihan dapat diubah dari DRAFT menjadi BERLANGSUNG)
--- ---------------------------------------------------------------------
-DELIMITER $$
 
 DROP PROCEDURE IF EXISTS sp_ubah_status_pemilihan$$
 CREATE PROCEDURE sp_ubah_status_pemilihan (
@@ -433,12 +390,8 @@ END$$
 
 DELIMITER ;
 
--- ---------------------------------------------------------------------
--- BAGIAN 2B. PROSEDUR ADMIN (login admin dan pengelolaan status pemilih)
--- ---------------------------------------------------------------------
 DELIMITER $$
 
--- A. sp_login_admin : login admin dengan pola yang sama seperti sp_login_pemilih
 DROP PROCEDURE IF EXISTS sp_login_admin$$
 CREATE PROCEDURE sp_login_admin (
   IN  p_username   VARCHAR(50),
@@ -462,7 +415,6 @@ BEGIN
     FROM admin
    WHERE username = p_username;
 
-  -- Pesan dibuat seragam agar tidak memberi tahu apakah username itu ada
   IF v_id IS NULL OR v_hash <> SHA2(p_password, 256) THEN
     SET p_status = 'GAGAL: username atau kata sandi salah';
   ELSE
@@ -471,8 +423,6 @@ BEGIN
   END IF;
 END$$
 
--- B. sp_ubah_status_pemilih : admin menonaktifkan atau mengaktifkan pemilih
---    p_aktif = 0 (nonaktif) atau 1 (aktif). Setiap perubahan dicatat di log_audit.
 DROP PROCEDURE IF EXISTS sp_ubah_status_pemilih$$
 CREATE PROCEDURE sp_ubah_status_pemilih (
   IN  p_id_admin INT,
@@ -525,12 +475,6 @@ END$$
 
 DELIMITER ;
 
--- ---------------------------------------------------------------------
--- BAGIAN 3B. KEAMANAN: pengguna basis data dan hak akses (Bab III 3.8)
--- Aplikasi TIDAK diberi hak INSERT/UPDATE/DELETE pada tabel apa pun.
--- Semua perubahan dilakukan melalui stored procedure.
--- Ganti kata sandi di bawah ini sebelum digunakan.
--- ---------------------------------------------------------------------
 CREATE USER IF NOT EXISTS 'app_pemilu'@'localhost'
   IDENTIFIED BY 'GantiDenganKataSandiKuat!2026';
 CREATE USER IF NOT EXISTS 'admin_pemilu'@'localhost'
@@ -605,8 +549,6 @@ END$$
 
 DELIMITER ;
 
--- ---------------------------------------------------------------------
--- BAGIAN 4. DATA AWAL (contoh untuk pengujian)
--- ---------------------------------------------------------------------
+
 INSERT IGNORE INTO admin (username, password_hash, peran)
 VALUES ('admin', SHA2('admin123', 256), 'ADMIN');

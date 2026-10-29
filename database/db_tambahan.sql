@@ -1,13 +1,4 @@
--- =====================================================================
--- db_tambahan.sql — dijalankan SETELAH db_pemilu.sql
--- Prosedur tambahan untuk antarmuka web. Tidak mengubah tabel maupun
--- trigger milik db_pemilu.sql.
---
--- Alasan: pengguna app_pemilu dan admin_pemilu hanya punya hak EXECUTE
--- (tanpa SELECT ke tabel), sehingga web membutuhkan prosedur untuk
--- menampilkan daftar pemilihan, kandidat, hasil, dan jejak audit.
--- Semua prosedur berjalan dengan SQL SECURITY DEFINER (bawaan MySQL).
--- =====================================================================
+
 USE db_pemilu;
 DELIMITER $$
 
@@ -90,9 +81,6 @@ BEGIN
   END IF;
 END$$
 
--- Buku suara publik: kode verifikasi + pilihan, TANPA identitas dan TANPA
--- waktu (agar tidak dapat dicocokkan dengan tabel partisipasi). Diurutkan
--- menurut kode (acak), bukan menurut urutan masuk. Hanya setelah SELESAI.
 DROP PROCEDURE IF EXISTS sp_buku_suara$$
 CREATE PROCEDURE sp_buku_suara (IN p_id INT, IN p_limit INT, IN p_offset INT)
 BEGIN
