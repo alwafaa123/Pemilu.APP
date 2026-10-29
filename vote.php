@@ -13,7 +13,6 @@ if (!$pem) {
     redirect('dashboard.php');
 }
 
-/* ---- Kirim suara: seluruh validasi dilakukan sp_catat_suara ---- */
 if (is_post()) {
     csrf_verify();
     $idKandidat = (int)($_POST['kandidat'] ?? 0);

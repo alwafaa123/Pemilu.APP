@@ -24,7 +24,7 @@ $selesai = $pem && $pem['status'] === 'SELESAI';
 $hal    = max(1, (int)($_GET['hal'] ?? 1));
 $buku   = [];
 $jmlHal = 1;
-$hitung = null;     // hasil hitung ulang independen
+$hitung = null;   
 $cocok  = null;
 
 if ($selesai && $integ) {
@@ -33,7 +33,6 @@ if ($selesai && $integ) {
     $hal    = min($hal, $jmlHal);
     $buku   = proc_rows($db, 'sp_buku_suara', [$id, PER_HAL, ($hal - 1) * PER_HAL]);
 
-    // Hitung ulang sendiri dari buku suara, lalu bandingkan dengan rekap resmi
     if ($total > 0 && $total <= BATAS_HITUNG_ULANG) {
         $hitung = [];
         for ($off = 0; $off < $total; $off += 1000) {
