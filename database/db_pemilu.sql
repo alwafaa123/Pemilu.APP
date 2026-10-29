@@ -349,8 +349,6 @@ BEGIN
                     ROUND(p_memilih * 100 / p_terdaftar, 2));
 END$$
 
-DELIMITER ;
-
 DROP PROCEDURE IF EXISTS sp_ubah_status_pemilihan$$
 CREATE PROCEDURE sp_ubah_status_pemilihan (
   IN  p_id_pemilihan INT,
